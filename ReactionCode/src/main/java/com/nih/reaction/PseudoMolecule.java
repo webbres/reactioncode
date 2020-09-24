@@ -24,6 +24,8 @@ import org.openscience.cdk.AtomContainer;
 import org.openscience.cdk.Bond;
 import org.openscience.cdk.CDKConstants;
 import org.openscience.cdk.DefaultChemObjectBuilder;
+import org.openscience.cdk.depict.Depiction;
+import org.openscience.cdk.depict.DepictionGenerator;
 import org.openscience.cdk.exception.CDKException;
 import org.openscience.cdk.interfaces.IAtom;
 import org.openscience.cdk.interfaces.IAtomContainer;
@@ -839,20 +841,44 @@ public class PseudoMolecule {
 	}
 
 	/**
-	 * @param parentPath
-	 * @param name
+	 * Depict the CGR and save as a PDF
+	 * @param parentPath	the directory
+	 * @param name			the filename
 	 * @throws IOException
 	 * @throws CDKException
 	 * @throws CloneNotSupportedException
 	 */
 	public void writePseudoMoleculeImage(String parentPath, String name) throws IOException, CDKException, CloneNotSupportedException {
-		new org.openscience.cdk.depict.DepictionGenerator().withHighlight(getBondOrderList(), Color.GREEN)
-		.withHighlight(getBondFormedList(), Color.BLUE)
-		.withHighlight(getBondCleavedList(), Color.RED)
-		.withHighlight(getBondOrderList(), Color.GREEN)
-		.withHighlight(getReactioncenter(), Color.LIGHT_GRAY)
-		.withOuterGlowHighlight().withAtomColors().withAtomMapNumbers()
-		.depict(new AtomContainer(pseudoMolecule)).writeTo(new File(parentPath, name+"_pseudoMolecule.pdf").toString());
+		getDepiction().writeTo(new File(parentPath, name+"_pseudoMolecule.pdf").toString());
+	}
+	
+	/**
+	 * Depict the CGR and return as an SVG
+	 * @return	the SVG representation of the reaction depiction
+	 * 
+	 * @throws IOException
+	 * @throws CDKException
+	 * @throws CloneNotSupportedException
+	 */
+	public String toSvg() throws IOException, CDKException, CloneNotSupportedException 
+	{
+		return getDepiction().toSvgStr();
+	}
+	
+	/**
+	 * Depict the CGR
+	 * @return
+	 * @throws CDKException
+	 */
+	public Depiction getDepiction() throws CDKException
+	{
+		return new org.openscience.cdk.depict.DepictionGenerator().withHighlight(getBondOrderList(), Color.GREEN)
+				.withHighlight(getBondFormedList(), Color.BLUE)
+				.withHighlight(getBondCleavedList(), Color.RED)
+				.withHighlight(getBondOrderList(), Color.GREEN)
+				.withHighlight(getReactioncenter(), Color.LIGHT_GRAY)
+				.withOuterGlowHighlight().withAtomColors().withAtomMapNumbers()
+				.depict(new AtomContainer(pseudoMolecule));
 	}
 	
 	/**
