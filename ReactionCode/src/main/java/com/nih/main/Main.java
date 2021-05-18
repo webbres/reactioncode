@@ -17,6 +17,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
@@ -26,9 +31,9 @@ import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.FileUtils;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.openscience.cdk.CDKConstants;
-import org.openscience.cdk.DefaultChemObjectBuilder;
 import org.openscience.cdk.Reaction;
 import org.openscience.cdk.ReactionSet;
+import org.openscience.cdk.DefaultChemObjectBuilder;
 import org.openscience.cdk.exception.CDKException;
 import org.openscience.cdk.interfaces.IAtom;
 import org.openscience.cdk.interfaces.IAtomContainer;
@@ -120,6 +125,7 @@ public class Main {
 		boolean charge = true; 
 		boolean hybridization = false; 
 		boolean repetition = true; 
+		boolean radicalize = false;
 		boolean stereochemistry = true; 
 		
 		List<String> headers = new ArrayList<String>();
@@ -165,6 +171,9 @@ public class Main {
 		}
 		if (commands.hasOption('r')) {
 			repetition = false; 
+		}
+		if (commands.hasOption('z')) {
+			radicalize = true; 
 		}
 		if (commands.hasOption('s')) {
 			writeSDF = true;
@@ -238,7 +247,9 @@ public class Main {
 		else if (format.equals("SMIRKS_FILE")) {
 			System.out.println(ColouredSystemOutPrintln.ANSI_PURPLE + "Fromat detected: SMIRKS" 
 					+ ColouredSystemOutPrintln.ANSI_RESET);
-			reactions = parser.parseReactionSMILES(reactionFile, 0, true, false);
+			parser.kekulize(false);
+			parser.radicalize(radicalize);
+			reactions = parser.parseReactionSMILES(reactionFile, 0, true);
 			files = parser.getFiles();
 			//add a null file which correspond to the reactionSet returned by parseRDF (all other reactions are 
 			//written in a temp file
@@ -247,7 +258,9 @@ public class Main {
 		else if (format.equals("SMIRKS_TEXT")) {
 			System.out.println(ColouredSystemOutPrintln.ANSI_PURPLE + "Fromat detected: SMIRKS" 
 					+ ColouredSystemOutPrintln.ANSI_RESET);
-			reactions = parser.parseReactionSMILES(reactionFile, false);
+			parser.kekulize(false);
+			parser.radicalize(radicalize);
+			reactions = parser.parseReactionSMILES(reactionFile);
 			//add a null file which correspond to the reactionSet returned by parseRDF (all other reactions are 
 			//written in a temp file
 			files.add(0, null);
@@ -290,12 +303,14 @@ public class Main {
 				try {
 					//aromaticity perceived when RDF is read
 					for (IAtomContainer ac : reactants.atomContainers()) {
-						//tools.perceiveAromaticityAndflagAtomsAndBonds(ac);
+						if (format.equals("RXN_FILE") || format.equals("RDF_FILE"))
+							tools.perceiveAromaticityAndflagAtomsAndBonds(ac);
 						tools.attributeIDtoAtomsAndBonds(ac);
 					}
 
 					for (IAtomContainer ac : products.atomContainers()) {
-						//tools.perceiveAromaticityAndflagAtomsAndBonds(ac);
+						if (format.equals("RXN_FILE") || format.equals("RDF_FILE"))
+							tools.perceiveAromaticityAndflagAtomsAndBonds(ac);
 						tools.attributeIDtoAtomsAndBonds(ac);
 					}
 				}
@@ -498,7 +513,7 @@ public class Main {
 		String outputDirectory;
 		String errorsFileName;
 		boolean makeImage = false;
-		boolean addHydrogenForLastLayer = true;
+		boolean addHydrogenForLastLayer = false;
 		boolean writeSMIRKS = false;
 		boolean writeSMIRKSWMapping = false;
 		boolean writeRXN = false;
@@ -567,8 +582,8 @@ public class Main {
 		if (new File(outputDirectory + prefix + "_reactionSMILES.txt").exists()) {
 			removeFile(outputDirectory + prefix + "_reactionSMILES.txt");
 		}
-		if (new File(outputDirectory + prefix + "_reactionSMILESAndMapping.txt").exists()) {
-			removeFile(outputDirectory + prefix + "_reactionSMILESAndMapping.txt");
+		if (new File(outputDirectory + prefix + "_SMIRKS.txt").exists()) {
+			removeFile(outputDirectory + prefix + "_SMIRKS.txt");
 		}
 
 		//parse reactions
@@ -624,30 +639,6 @@ public class Main {
 				id++;
 				cpt++;
 
-				if (cpt == 5000) {
-					System.out.println(ColouredSystemOutPrintln.ANSI_GREEN + 5000*filecpt +
-							" have been decoded "+ ColouredSystemOutPrintln.ANSI_RESET);
-					if (writeRDF) {
-						System.out.println("RD file is being wrting...");
-						File file = new File(outputDirectory + filecpt + "_decodedReactions.rdf");
-						try (MDLV2000RDFWriter writer = new MDLV2000RDFWriter(new FileWriter(file))) {
-							writer.setWriteAromaticBondTypes(true);
-							writer.write(reactions);
-							//writer.setRdFieldsProperties(map);
-							writer.close();
-						} catch (CDKException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-							dataFile(id + "\t Can not write a proper RDF \t" + reactionCode + "\n", errorsFileName);
-						}
-						System.out.println(ColouredSystemOutPrintln.ANSI_GREEN +
-								"RD file writing is complete "+ ColouredSystemOutPrintln.ANSI_RESET);
-					}
-					reactions.removeAllReactions();
-					cpt = 1;
-					filecpt++;
-				}
-				
 				if (writeRXN || makeImage || writeSMIRKS || writeSMIRKSWMapping) {
 					if (writeRXN) {
 						File file = new File(outputDirectory + "/RXN_Reaction/reaction_" + prefix + " " + id + "_decodedReactions.rxn");
@@ -672,7 +663,7 @@ public class Main {
 					}
 					if (writeSMIRKSWMapping) {
 						try {
-							dataFile(id + "\t" + tools.makeSmiles(reaction, true) + "\n", outputDirectory + prefix + "_reactionSMILESAndMapping.txt");
+							dataFile(id + "\t" + tools.makeSmiles(reaction, true) + "\n", outputDirectory + prefix + "_SMIRKS.txt");
 						}
 						catch (Exception e) {
 							e.printStackTrace();
@@ -681,14 +672,16 @@ public class Main {
 					}
 					if (makeImage) {
 						try {
+							//Convert IQueryAtomContainer to AtomContainer
+							IReaction newReaction = tools.convertReactionContainingIQueryAtomContainer(reaction);
 							//force delocalised in order to mark aromatic as dash bond (even if the ring is not complete)
-							new org.openscience.cdk.depict.DepictionGenerator().withParam(StandardGenerator.ForceDelocalisedBondDisplay.class, true)
-							.withHighlight(reaction.getProperty("bondsFormed"), Color.BLUE)
-							.withHighlight(reaction.getProperty("bondsCleaved"), Color.RED)
-							.withHighlight(reaction.getProperty("bondsOrder"), Color.GREEN)
-							.withHighlight(reaction.getProperty("reactionCenter"), Color.LIGHT_GRAY)
+							new org.openscience.cdk.depict.DepictionGenerator()
+							.withHighlight(newReaction.getProperty("bondsFormed"), Color.BLUE)
+							.withHighlight(newReaction.getProperty("bondsCleaved"), Color.RED)
+							.withHighlight(newReaction.getProperty("bondsOrder"), Color.GREEN)
+							.withHighlight(newReaction.getProperty("reactionCenter"), Color.LIGHT_GRAY)
 							.withOuterGlowHighlight().withAtomColors().withAtomMapNumbers()
-							.depict(reaction).writeTo(outputDirectory + "/IMG_ReactionDecoded/reaction_" + reaction.getID() + ".pdf");
+							.depict(newReaction).writeTo(outputDirectory + "/IMG_ReactionDecoded/reaction_" + reaction.getID() + ".pdf");
 						}
 						catch (Exception e) {
 							e.printStackTrace();
@@ -696,6 +689,30 @@ public class Main {
 						}
 
 					}
+				}
+				
+				if (cpt == 5000) {
+					System.out.println(ColouredSystemOutPrintln.ANSI_GREEN + 5000*filecpt +
+							" have been decoded "+ ColouredSystemOutPrintln.ANSI_RESET);
+					if (writeRDF) {
+						System.out.println("RD file is being wrting...");
+						File file = new File(outputDirectory + filecpt + "_decodedReactions.rdf");
+						try (MDLV2000RDFWriter writer = new MDLV2000RDFWriter(new FileWriter(file))) {
+							writer.setWriteAromaticBondTypes(true);
+							writer.write(reactions);
+							//writer.setRdFieldsProperties(map);
+							writer.close();
+						} catch (CDKException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+							dataFile(id + "\t Can not write a proper RDF \t" + reactionCode + "\n", errorsFileName);
+						}
+						System.out.println(ColouredSystemOutPrintln.ANSI_GREEN +
+								"RD file writing is complete "+ ColouredSystemOutPrintln.ANSI_RESET);
+					}
+					reactions.removeAllReactions();
+					cpt = 1;
+					filecpt++;
 				}
 
 				if (failed) 
@@ -721,7 +738,7 @@ public class Main {
 	private static void transformer(CommandLine commands, Options options, String format) throws CDKException, IOException, CloneNotSupportedException {
 		//parse option
 		String reactionFile = commands.getOptionValue('q').replaceAll("[^\\x00-\\x7F]", "");
-		String reagents = commands.getOptionValue('t').replaceAll("[^\\x00-\\x7F]", ""); 
+		String reagents = commands.getOptionValue('t').replaceAll("[^\\x00-\\x7F]", "");
 		String outputDirectory;
 		String errorsFileName;
 		boolean makeImage = false;
@@ -730,8 +747,9 @@ public class Main {
 		boolean writeRXN = false;
 		boolean writeRDF = false;
 		boolean multipleReactions = false;
-		int stoichiometry = 5;
+		int stoichiometry = 1;
 		boolean checkValence = false;
+		int time = 60;
 		String prefix = "transformed";
 		
 		if (commands.hasOption('o')) {
@@ -750,6 +768,9 @@ public class Main {
 		}
 		if (commands.hasOption('z')) {
 			stoichiometry = Integer.parseInt(commands.getOptionValue('z'));
+		}
+		if (commands.hasOption('z')) {
+			time = Integer.parseInt(commands.getOptionValue('z'));
 		}
 		if (commands.hasOption('c')) {
 			checkValence = true;
@@ -782,6 +803,8 @@ public class Main {
 		
 		errorsFileName = outputDirectory + prefix + "_ReactionCodeTransformer_errors.txt";
 		removeFile(errorsFileName);
+		
+		
 
 		//create directories
 		if (writeRXN) {
@@ -801,8 +824,14 @@ public class Main {
 		if (new File(outputDirectory + prefix + "_reactionSMILES.txt").exists()) {
 			removeFile(outputDirectory + prefix + "_reactionSMILES.txt");
 		}
-		if (new File(outputDirectory + prefix + "_reactionSMILESAndMapping.txt").exists()) {
-			removeFile(outputDirectory + prefix + "_reactionSMILESAndMapping.txt");
+		if (new File(outputDirectory + prefix + "_SMIRKS.txt").exists()) {
+			removeFile(outputDirectory + prefix + "_SMIRKS.txt");
+		}
+		if (new File(outputDirectory + prefix + "_reactionSMILES_1.txt").exists()) {
+			removeFile(outputDirectory + prefix + "_reactionSMILES_1.txt");
+		}
+		if (new File(outputDirectory + prefix + "_SMIRKS_1.txt").exists()) {
+			removeFile(outputDirectory + prefix + "_SMIRKS_1.txt");
 		}
 		
 		//parse reactions
@@ -849,14 +878,14 @@ public class Main {
 		transformer.setCheckValence(checkValence);
 		
 		DecodeReactionCode decoder = new DecodeReactionCode();
+		decoder.setCalculateExpr(true);
 		decoder.setAddHydrogenForLastLayer(false);
 		IReactionSet reactions = DefaultChemObjectBuilder.getInstance().newInstance(IReactionSet.class);
 		int cpt = 1;
 		int reactionCount = 0;
-		int filecpt = 0;
+		int filecpt = 1;
 		int success = 0;
 		int fails = 0;
-		boolean failed = false;
 		int id = 0;
 		/*
 		for (int i = 0; i < files.size(); i++) {
@@ -866,7 +895,24 @@ public class Main {
 				reactionCodes = parser.getReactionCode(tfile.toString(), format);
 			}
 			*/
-			for (String reactionCode : reactionCodes) {
+		List<IAtomContainerSet> allReactants = new ArrayList<IAtomContainerSet>();
+		if (reagentsFile.isFile()) {
+			BufferedReader br = new BufferedReader(new FileReader(reagentsFile)); 
+			String line; 
+			while ((line = br.readLine()) != null) {
+				IAtomContainerSet reactants = null;
+				if (reagentsFormat.equals("setOfSMILES")){
+					reactants = parser.parseSMILES(line, false);
+					allReactants.add(reactants);
+				}
+				else if (reagentsFormat.equals("setOfSMILES")){
+					reactants = parser.parseSDF(line).getReactants();
+					allReactants.add(reactants);
+				}
+			}
+		}
+			for (int i = 0; i< reactionCodes.size(); i++) {
+				String reactionCode = reactionCodes.get(i);
 				reactionCount++;
 				IReaction transform;
 				try {
@@ -877,108 +923,89 @@ public class Main {
 					transform = new Reaction();
 					transform.setID(id+"");
 					dataFile(id + "\t decoding failure \t" + reactionCode + "\n", errorsFileName);
-					failed = true;
 				} 
 	
 				if (transform.getProperty("mappingError") != null) {
 					//write failed reactions
 					dataFile(id + "\t mapping error \t" + reactionCode + "\n", errorsFileName);
-					failed = true;
 				}
 	//			File reagentsFile = new File(reagents); 
 				List<IReaction> generatedReactions = new ArrayList<IReaction>();
-				if (multipleReactions) {
-					if (reagentsFormat.equals("SMILES")) {
-						try {
-							generatedReactions = transformer.applyTranform2(reagents, transform);
-						}
-						catch (Exception e){
-							System.err.println(e);
-						}
-					}
-					else if (reagentsFormat.equals("setOfSMILES")) {
-						try {
-							generatedReactions = transformer.applyTranform2(reagentsList.get(reactionCount-1), transform);
-						}
-						catch (Exception e){
-							System.err.println(e);
-						}
-					}
-					else if (reagentsFormat.equals("setOfSDF")) {
-						IAtomContainerSet parseReagents = null;
-						try {
-							parseReagents = parser.parseSDF(reagentsList.get(reactionCount-1)).getReactants();
-						}
-						catch (Exception e){
-							dataFile(id + "\t can not parse SDF of reagents \t" + reactionCode + "\n", errorsFileName);
-						}
-						generatedReactions = transformer.applyTranform2(parseReagents, transform);
-					}
-					else {
-						System.err.println("invalid format of Reagents or does not match with the reactionCodes number");
-						return;
-					}
-					for (IReaction r : generatedReactions) {
-						r.setID(transform.getID());
-						reactions.addReaction(r);
-					}
-				}
-				else {
-					IReaction reaction;
-					if (reagentsFormat.equals("SMILES")) {
-						reaction = transformer.applyTranform(reagents, transform);
-					}
-					else if (reagentsFormat.equals("setOfSMILES")) {
-						reaction = transformer.applyTranform(reagentsList.get(reactionCount-1), transform);
-					}
-					else if (reagentsFormat.equals("setOfSDF")) {
-						IAtomContainerSet parseReagents = null;
-						try {
-							parseReagents = parser.parseSDF(reagentsList.get(reactionCount-1)).getReactants();
-						}
-						catch (Exception e){
-							dataFile(id + "\t can not parse SDF of reagents \t" + reactionCode + "\n", errorsFileName);
-						}
-						reaction = transformer.applyTranform(parseReagents, transform);
-					}
-					else {
-						System.err.println("invalid format of Reagents or does not match with the reactionCOdes number");
-						return;
-					}
-					reaction.setID(transform.getID());
-					reactions.addReaction(reaction);
-					generatedReactions.add(reaction);
-				}
-				id++;
-				cpt++;
-	
-				if (cpt >= 5000) {
-					System.out.println(ColouredSystemOutPrintln.ANSI_GREEN + 5000*filecpt+1 +
-							" have been transformed "+ ColouredSystemOutPrintln.ANSI_RESET);
-					if (writeRDF) {
-						System.out.println("RD file is being writing...");
-						File file = new File(outputDirectory + filecpt + "_transformedReactions.rdf");
-						try (MDLV2000RDFWriter writer = new MDLV2000RDFWriter(new FileWriter(file))) {
-							writer.setWriteAromaticBondTypes(true);
-							writer.write(reactions);
-							//writer.setRdFieldsProperties(map);
-							writer.close();
-						} catch (CDKException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-						System.out.println(ColouredSystemOutPrintln.ANSI_GREEN +
-								"RD file writing is complete "+ ColouredSystemOutPrintln.ANSI_RESET);
-					}
-					reactions.removeAllReactions();
-					cpt = 1;
-					filecpt++;
-				}
+				IReaction transformCopy = transform;
+			if (reagentsFormat.equals("SMILES")) {
+				final ExecutorService service = Executors.newSingleThreadExecutor();
+				try {
+		            final Future<List<IReaction> > f = service.submit(() -> {
+		                return transformer.transform(reagents, transformCopy);
+		            });
+
+		            generatedReactions = f.get(time, TimeUnit.SECONDS);
+		        } catch (final TimeoutException e) {
+		            System.err.println("Calculation took to long");
+		        } catch (final Exception e) {
+		            throw new RuntimeException(e);
+		        } finally {
+		        	cpt++;
+		        	id++;
+		            service.shutdown();
+		        }
+			} 
+			else if (reagentsFormat.equals("setOfSMILES")) {
+				IAtomContainerSet reactants = allReactants.get(i);
+				final ExecutorService service = Executors.newSingleThreadExecutor();
+				try {
+		            final Future<List<IReaction> > f = service.submit(() -> {
+		                return transformer.transform(reactants, transformCopy);
+		            });
+
+		            generatedReactions = f.get(time, TimeUnit.SECONDS);
+		        } catch (final TimeoutException e) {
+		            System.err.println("Calculation took to long");
+		        } catch (final Exception e) {
+		            throw new RuntimeException(e);
+		        } finally {
+		        	cpt++;
+		        	id++;
+		            service.shutdown();
+		        }
+			} 
+			else if (reagentsFormat.equals("setOfSDF")) {
+				IAtomContainerSet reactants = allReactants.get(i);
+				final ExecutorService service = Executors.newSingleThreadExecutor();
+				try {
+		            final Future<List<IReaction> > f = service.submit(() -> {
+		                return transformer.transform(reactants, transformCopy);
+		            });
+
+		            generatedReactions = f.get(time, TimeUnit.SECONDS);
+		        } catch (final TimeoutException e) {
+		            System.err.println("Calculation took to long");
+		        } catch (final Exception e) {
+		            throw new RuntimeException(e);
+		        } finally {
+		        	cpt++;
+		        	id++;
+		            service.shutdown();
+		        }
+			} 
+			else {
+				System.err.println("invalid format of Reagents or does not match with the reactionCodes number");
+				return;
+			}
+			for (IReaction r : generatedReactions) {
+				r.setID(transform.getID());
+				reactions.addReaction(r);
+			}
+			
+			if (generatedReactions.size() == 0) 
+				fails += 1;
+			else
+				success += 1;
 				
 				if (writeRXN || makeImage || writeSMIRKS || writeSMIRKSWMapping) {
 					if (writeRXN) {
 						for (int j = 0; j < generatedReactions.size(); j++) {
-							IReaction reaction = generatedReactions.get(0);
+							IReaction reaction = generatedReactions.get(j);
 							File file;
 							if (multipleReactions){
 								file = new File(outputDirectory + "/RXN_ReactionTransformed/reaction_" + prefix + " " + id + "_" + j + "_transformedReactions.rxn");
@@ -1003,8 +1030,11 @@ public class Main {
 						for (IReaction reaction : generatedReactions) {
 							smiles += tools.makeSmiles(reaction, false) + "\t";
 						}
+						if (generatedReactions.isEmpty()) {
+							smiles = "no or too many possible products";
+						}
 						try {
-							dataFile(id-1 + "\t" + smiles + "\n", outputDirectory + prefix + "_reactionSMILES.txt");
+							dataFile(id-1 + "\t" + smiles + "\n", outputDirectory + prefix + "_reactionSMILES_" + filecpt + ".txt");
 						}
 						catch (Exception e) {
 							e.printStackTrace();
@@ -1015,8 +1045,11 @@ public class Main {
 						for (IReaction reaction : generatedReactions) {
 							smiles += tools.makeSmiles(reaction, true) + "\t";
 						}
+						if (generatedReactions.isEmpty()) {
+							smiles = "no or too many possible products";
+						}
 						try {
-							dataFile(id-1 + "\t" + smiles + "\n", outputDirectory + prefix + "_reactionSMILESAndMapping.txt");
+							dataFile(id-1 + "\t" + smiles + "\n", outputDirectory + prefix + "_SMIRKS_" + filecpt + ".txt");
 						}
 						catch (Exception e) {
 							e.printStackTrace();
@@ -1026,7 +1059,7 @@ public class Main {
 						try {
 							//force delocalised in order to mark aromatic as dash bond (even if the ring is not complete)
 							for (int j = 0; j < generatedReactions.size(); j++) {
-								IReaction reaction = generatedReactions.get(0);
+								IReaction reaction = generatedReactions.get(j);
 								new org.openscience.cdk.depict.DepictionGenerator().withParam(StandardGenerator.ForceDelocalisedBondDisplay.class, true)
 								//.withHighlight(reaction.getProperty("bondsFormed"), Color.BLUE)
 								//.withHighlight(reaction.getProperty("bondsCleaved"), Color.RED)
@@ -1042,13 +1075,35 @@ public class Main {
 	
 					}
 				}
-	
-				if (failed) 
-					fails += 1;
-				else
-					success += 1;
-				failed = false;
-	
+
+				if (cpt >= 250) {
+					System.out.println(ColouredSystemOutPrintln.ANSI_GREEN + 250*filecpt +
+							" have been transformed "+ ColouredSystemOutPrintln.ANSI_RESET);
+					if (writeRDF) {
+						System.out.println("RD file is being writing...");
+						File file = new File(outputDirectory + filecpt + "_transformedReactions.rdf");
+						try (MDLV2000RDFWriter writer = new MDLV2000RDFWriter(new FileWriter(file))) {
+							writer.setWriteAromaticBondTypes(true);
+							writer.write(reactions);
+							//writer.setRdFieldsProperties(map);
+							writer.close();
+						} catch (CDKException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+						System.out.println(ColouredSystemOutPrintln.ANSI_GREEN +
+								"RD file writing is complete "+ ColouredSystemOutPrintln.ANSI_RESET);
+					}
+					reactions.removeAllReactions();
+					cpt = 1;
+					filecpt++;
+					if (new File(outputDirectory + prefix + "_reactionSMILES_" + filecpt + ".txt").exists()) {
+						removeFile(outputDirectory + prefix + "_reactionSMILES_" + filecpt + ".txt");
+					}
+					if (new File(outputDirectory + prefix + "_SMIRKS_" + filecpt + ".txt").exists()) {
+						removeFile(outputDirectory + prefix + "_SMIRKS_" + filecpt + ".txt");
+					}
+				}
 			}
 		//}
 		System.out.println(ColouredSystemOutPrintln.ANSI_GREEN +

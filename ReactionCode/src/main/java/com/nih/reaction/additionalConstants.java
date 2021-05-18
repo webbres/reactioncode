@@ -1,6 +1,8 @@
 package com.nih.reaction;
 
 public class additionalConstants {
+	
+	public final static String RADICAL = "radical";
 
 	public final static String ATOMCONTAINER_INDEX = "IAtomContainerIndex";
 
@@ -18,7 +20,7 @@ public class additionalConstants {
 	public final static int LEAVING_ATOM = 0x0003;
 
 	/** Flag is set if bond is formed. */
-	public final static int BOND_FORMED = 0x0004;
+	public final static int BOND_MADE = 0x0004;
 
 	/** Flag is set if bond is cleaved. */
 	public final static int BOND_CLEAVED = 0x0005;
@@ -122,5 +124,11 @@ public class additionalConstants {
 	public final static int GAIN_ONE_CHARGE = 0x0021;
 	
 	public final static int LOOSE_ONE_CHARGE = 0x0022;
+	
+	/** Flag is set if an atom gain or loose a single electron. */
+	public final static int RADICAL_CHANGE = 0x0023;
+	
+	/** Flag is set if atom is the molecule is an agent. */
+	public final static int SPECTATOR = 0x0024;
 	
 }
