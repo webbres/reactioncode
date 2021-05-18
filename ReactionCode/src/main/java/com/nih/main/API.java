@@ -113,7 +113,7 @@ public class API {
 
 		String reactionCode = null;
 		try {
-			reactionCode = encode(reaction, bondType, charge, hybridization,repetition, stereochemistry, false);
+			reactionCode = encode(reaction, bondType, charge, hybridization,repetition, stereochemistry, perceiveAromaticity);
 		} catch (CDKException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
