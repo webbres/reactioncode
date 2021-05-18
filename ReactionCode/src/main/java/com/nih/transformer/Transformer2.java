@@ -36,7 +36,7 @@ import com.nih.tools.tools;
 /**
  * DEPRECATED
  * OLD Transformer version
- *
+ * @deprecated
  */
 public class Transformer2 {
 
